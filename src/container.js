@@ -24,6 +24,7 @@ const YamlProviderBuilder = require('./services/YamlProviderBuilder');
 const StreamResolveCache = require('./services/StreamResolveCache');
 const IframeDomainRegistry = require('./services/IframeDomainRegistry');
 const PpvStProvider = require('./providers/PpvStProvider');
+const ProviderHealthService = require('./services/ProviderHealthService');
 
 const container = createContainer({
   injectionMode: InjectionMode.PROXY
@@ -39,6 +40,7 @@ container.register({
   matchAggregator: asClass(MatchAggregator).singleton(),
   streamScorer: asClass(StreamScoringService).singleton(),
   streamResolveCache: asValue(new StreamResolveCache()),
+  providerHealthService: asClass(ProviderHealthService).singleton(),
   teamLogoService: asClass(TeamLogoService).singleton(),
   // Self-healing iframe-domain knowledge base (DaddyLive family). Singleton so
   // runtime discoveries accumulate for the process lifetime.

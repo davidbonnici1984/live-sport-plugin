@@ -64,6 +64,60 @@
     .loader { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 15px; }
     .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    .home-layout { display: flex; align-items: flex-start; gap: 24px; }
+    .catalog-content { flex: 1; min-width: 0; }
+    .provider-health {
+      position: sticky;
+      top: 108px;
+      width: 320px;
+      max-height: calc(100vh - 132px);
+      overflow-y: auto;
+      flex: none;
+      padding: 20px;
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      background: rgba(20, 20, 23, 0.75);
+      backdrop-filter: blur(14px);
+    }
+    .provider-health[hidden] { display: none; }
+    .health-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+    .health-heading h2 { margin: 0 0 4px; font-family: 'Outfit', sans-serif; font-size: 1.05rem; }
+    .health-heading p { margin: 0; color: var(--text-muted); font-size: 0.72rem; line-height: 1.45; }
+    .health-refresh {
+      padding: 7px 11px;
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+    .health-refresh:hover { background: rgba(255,255,255,0.12); }
+    .health-refresh:disabled { opacity: 0.55; cursor: wait; }
+    .health-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+    .health-summary-item { padding: 9px 10px; border-radius: 10px; background: rgba(255,255,255,0.045); }
+    .health-summary-item span { display: block; color: var(--text-muted); font-size: 0.65rem; }
+    .health-summary-item strong { display: block; margin-top: 2px; font-size: 0.82rem; font-weight: 600; }
+    .health-list { display: flex; flex-direction: column; gap: 8px; }
+    .health-provider-card { padding: 10px 11px; border: 1px solid var(--card-border); border-radius: 11px; background: rgba(255,255,255,0.025); }
+    .health-provider-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .health-provider-name { min-width: 0; overflow: hidden; color: var(--text); font-size: 0.78rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+    .health-state { display: inline-flex; align-items: center; gap: 5px; flex: none; color: var(--text-muted); font-size: 0.67rem; text-transform: capitalize; }
+    .health-state::before { width: 7px; height: 7px; border-radius: 50%; background: #64748b; content: ""; }
+    .health-state.is-healthy::before, .health-state.is-cached::before { background: #22c55e; }
+    .health-state.is-empty::before, .health-state.is-degraded::before { background: #f59e0b; }
+    .health-state.is-error::before { background: var(--accent); }
+    .health-provider-meta { display: flex; gap: 10px; margin-top: 6px; color: var(--text-muted); font-size: 0.66rem; }
+    .health-note { margin: 6px 0 0; color: #f59e0b; font-size: 0.65rem; line-height: 1.35; overflow-wrap: anywhere; }
+    .health-updated { margin: 12px 0 0; color: var(--text-muted); font-size: 0.65rem; text-align: right; }
+    @media (max-width: 1100px) {
+      .home-layout { flex-direction: column; }
+      .provider-health { position: static; width: 100%; max-height: none; order: 2; }
+      .catalog-content { width: 100%; }
+      .health-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
@@ -142,13 +196,30 @@
   </div>
 
   <main>
-    <div style="display: flex; gap: 15px; margin-bottom: 30px; align-items: center; flex-wrap: wrap;">
-      <div class="tabs" id="tabs" style="flex: 1; margin-bottom: 0;">
-        <div style="color:var(--text-muted);">Loading catalogs...</div>
-      </div>
-      <input type="text" id="searchInput" placeholder="Search matches..." style="padding: 10px 20px; border-radius: 30px; background: rgba(255,255,255,0.05); border: 1px solid var(--card-border); color: white; outline: none; min-width: 200px; font-family: 'Inter', sans-serif;">
+    <div class="home-layout">
+      <section class="catalog-content" aria-label="Sports catalogs">
+        <div style="display: flex; gap: 15px; margin-bottom: 30px; align-items: center; flex-wrap: wrap;">
+          <div class="tabs" id="tabs" style="flex: 1; margin-bottom: 0;">
+            <div style="color:var(--text-muted);">Loading catalogs...</div>
+          </div>
+          <input type="text" id="searchInput" placeholder="Search matches..." style="padding: 10px 20px; border-radius: 30px; background: rgba(255,255,255,0.05); border: 1px solid var(--card-border); color: white; outline: none; min-width: 200px; font-family: 'Inter', sans-serif;">
+        </div>
+        <div class="grid" id="grid"></div>
+      </section>
+
+      <aside class="provider-health" id="providerHealthPanel" aria-labelledby="providerHealthHeading" hidden>
+        <div class="health-heading">
+          <div>
+            <h2 id="providerHealthHeading">Provider health</h2>
+            <p>Catalog sync status for this instance.</p>
+          </div>
+          <button type="button" class="health-refresh" id="refreshProviderHealth">Refresh</button>
+        </div>
+        <div class="health-summary" id="providerHealthSummary" aria-live="polite"></div>
+        <div class="health-list" id="providerHealthList"></div>
+        <p class="health-updated" id="providerHealthUpdated"></p>
+      </aside>
     </div>
-    <div class="grid" id="grid"></div>
   </main>
 
   <div id="player-overlay">
@@ -398,6 +469,107 @@
         document.body.removeChild(ta);
       }
     }
+
+    const providerHealthPanel = document.getElementById('providerHealthPanel');
+    const providerHealthSummary = document.getElementById('providerHealthSummary');
+    const providerHealthList = document.getElementById('providerHealthList');
+    const providerHealthUpdated = document.getElementById('providerHealthUpdated');
+    const refreshProviderHealth = document.getElementById('refreshProviderHealth');
+
+    function formatHealthAge(value) {
+      if (!value) return 'Never';
+      const time = new Date(value).getTime();
+      if (!Number.isFinite(time)) return 'Unknown';
+      const seconds = Math.max(0, Math.round((Date.now() - time) / 1000));
+      if (seconds < 60) return seconds + 's ago';
+      if (seconds < 3600) return Math.round(seconds / 60) + 'm ago';
+      if (seconds < 86400) return Math.round(seconds / 3600) + 'h ago';
+      return Math.round(seconds / 86400) + 'd ago';
+    }
+
+    function addHealthSummary(label, value) {
+      const item = document.createElement('div');
+      item.className = 'health-summary-item';
+      const key = document.createElement('span');
+      key.textContent = label;
+      const result = document.createElement('strong');
+      result.textContent = value;
+      item.append(key, result);
+      providerHealthSummary.appendChild(item);
+    }
+
+    function renderProviderHealth(data) {
+      const providers = Array.isArray(data.providers) ? data.providers : [];
+      const sync = data.sync || {};
+      const breakers = data.circuitBreakers && typeof data.circuitBreakers === 'object'
+        ? Object.values(data.circuitBreakers)
+        : [];
+      const openBreakers = breakers.filter((breaker) => breaker && breaker.state === 'open').length;
+
+      providerHealthPanel.hidden = false;
+      providerHealthSummary.replaceChildren();
+      addHealthSummary('Sync', sync.state || 'unknown');
+      addHealthSummary('Catalog', Number.isFinite(sync.matchCount) ? String(sync.matchCount) : 'Not synced');
+      addHealthSummary('Duration', Number.isFinite(sync.durationMs) ? (sync.durationMs / 1000).toFixed(1) + 's' : 'n/a');
+      addHealthSummary('Open breakers', String(openBreakers));
+
+      providerHealthList.replaceChildren();
+      for (const provider of providers) {
+        const card = document.createElement('div');
+        card.className = 'health-provider-card';
+        const head = document.createElement('div');
+        head.className = 'health-provider-head';
+        const name = document.createElement('span');
+        name.className = 'health-provider-name';
+        name.textContent = provider.name || provider.id || 'Unknown';
+        const stateName = provider.state || 'unknown';
+        const state = document.createElement('span');
+        state.className = 'health-state is-' + stateName;
+        state.textContent = stateName;
+        head.append(name, state);
+
+        const meta = document.createElement('div');
+        meta.className = 'health-provider-meta';
+        const fixtures = document.createElement('span');
+        fixtures.textContent = Number.isFinite(provider.matchCount) ? provider.matchCount + ' fixtures' : 'No fixture data';
+        const latency = document.createElement('span');
+        latency.textContent = Number.isFinite(provider.durationMs) ? provider.durationMs + ' ms' : 'Not checked';
+        const checked = document.createElement('span');
+        checked.textContent = formatHealthAge(provider.lastAttemptAt);
+        meta.append(fixtures, latency, checked);
+        card.append(head, meta);
+
+        const noteText = provider.error || provider.note ||
+          (provider.carriedForwardCount > 0 ? provider.carriedForwardCount + ' fixtures carried forward' : '');
+        if (noteText) {
+          const note = document.createElement('p');
+          note.className = 'health-note';
+          note.textContent = noteText;
+          card.appendChild(note);
+        }
+        providerHealthList.appendChild(card);
+      }
+      providerHealthUpdated.textContent = 'Updated ' + formatHealthAge(data.generatedAt);
+    }
+
+    async function loadProviderHealth() {
+      refreshProviderHealth.disabled = true;
+      try {
+        const response = await fetch('/api/provider-health', { cache: 'no-store' });
+        if (!response.ok) return;
+        renderProviderHealth(await response.json());
+      } catch (_) {
+        if (!providerHealthPanel.hidden) providerHealthUpdated.textContent = 'Refresh failed';
+      } finally {
+        refreshProviderHealth.disabled = false;
+      }
+    }
+
+    refreshProviderHealth.addEventListener('click', loadProviderHealth);
+    loadProviderHealth();
+    setInterval(() => {
+      if (!providerHealthPanel.hidden && !document.hidden) loadProviderHealth();
+    }, 30000);
 
     loadTabs();
   </script>

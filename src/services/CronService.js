@@ -5,10 +5,11 @@ const cron = require('node-cron');
 const REVALIDATE_AFTER_MS = parseInt(process.env.CATALOG_REVALIDATE_MS, 10) || 10 * 60 * 1000;
 
 class CronService {
-  constructor({ matchAggregator, streamResolveCache, cacheService }) {
+  constructor({ matchAggregator, streamResolveCache, cacheService, providerHealthService }) {
     this.matchAggregator = matchAggregator;
     this.streamResolveCache = streamResolveCache;
     this.cacheService = cacheService;
+    this.providerHealthService = providerHealthService;
     this.syncing = false;
   }
 
@@ -24,6 +25,11 @@ class CronService {
         this.pruneStreamCache(activeMatches);
         this.prewarmCatalogMemo();
       }
+    } catch (error) {
+      if (this.providerHealthService) {
+        this.providerHealthService.finishSync({ matchCount: 0, succeeded: false });
+      }
+      throw error;
     } finally {
       this.syncing = false;
     }

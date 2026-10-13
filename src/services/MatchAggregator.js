@@ -181,11 +181,13 @@ function _tryExtractTeams(title) {
 const { extractTeamsFromTitle } = require('./TeamNameExtractor');
 
 class MatchAggregator {
-  constructor({ timStreamsProvider, watchFootyProvider, cdnLiveProvider, streamSports99Provider, streamedPkProvider, cacheService, yamlProviders, replayzoneProvider, daddyLiveProvider, teamLogoService, liveTvProvider, damiTvProvider, ppvStProvider }) {
+  constructor({ timStreamsProvider, watchFootyProvider, cdnLiveProvider, streamSports99Provider, streamedPkProvider, cacheService, yamlProviders, replayzoneProvider, daddyLiveProvider, teamLogoService, liveTvProvider, damiTvProvider, ppvStProvider, providerHealthService }) {
     this.providers = [timStreamsProvider, streamedPkProvider, watchFootyProvider, cdnLiveProvider, ...(yamlProviders || []), replayzoneProvider, ...(liveTvProvider ? [liveTvProvider] : []), ...(daddyLiveProvider ? [daddyLiveProvider] : []), ...(damiTvProvider ? [damiTvProvider] : []), ...(ppvStProvider ? [ppvStProvider] : [])];
     this.streamSports99Provider = streamSports99Provider;
     this.cacheService = cacheService;
     this.teamLogoService = teamLogoService;
+    this.providerHealthService = providerHealthService;
+    if (this.providerHealthService) this.providerHealthService.registerProviders(this.providers);
   }
 
   /**
@@ -327,8 +329,32 @@ class MatchAggregator {
     return this._sameEventPre(this._precompute(e1), this._precompute(e2));
   }
 
+  async _fetchProviderMatches(provider) {
+    const startedAt = Date.now();
+    try {
+      const matches = await provider.getMatches();
+      if (this.providerHealthService) {
+        this.providerHealthService.recordResult(provider, {
+          matches,
+          durationMs: Date.now() - startedAt,
+        });
+      }
+      return matches;
+    } catch (error) {
+      if (this.providerHealthService) {
+        this.providerHealthService.recordResult(provider, {
+          matches: [],
+          durationMs: Date.now() - startedAt,
+          error,
+        });
+      }
+      throw error;
+    }
+  }
+
   async syncMatches() {
     console.log('[MatchAggregator] Fetching from all providers...');
+    if (this.providerHealthService) this.providerHealthService.startSync();
     const finalMatches = [];
     const finalPres = []; // precomputed identity for each accepted match
     const idIndex = new Map(); // exact ID/alias -> index in finalMatches
@@ -523,6 +549,16 @@ class MatchAggregator {
     if (isReplayFresh) {
       console.log(`[MatchAggregator] Reusing ${previousReplays.length} cached replay events (synced ${Math.round((Date.now() - this.lastReplaySync) / 60000)}m ago; 12h cadence). Skipping LiveTV & ReplayZone scrape.`);
       await processProviderMatches(previousReplays);
+      if (this.providerHealthService) {
+        for (const provider of this.providers) {
+          const name = provider && (provider.sourceName || provider.name || '');
+          if (!REPLAY_PROVIDERS.has(name)) continue;
+          const count = previousReplays.filter((match) =>
+            Array.isArray(match.sources) && match.sources.some((source) => source && source.source === name)
+          ).length;
+          this.providerHealthService.recordCached(provider, count, 'Fresh replay cache reused');
+        }
+      }
       anyProviderSucceeded = true;
     } else {
       this.lastReplaySync = Date.now();
@@ -541,7 +577,7 @@ class MatchAggregator {
       // Memory-safe sequential fetching (Alwaysdata)
       for (const p of providersToQuery) {
         try {
-          const providerMatches = await p.getMatches();
+          const providerMatches = await this._fetchProviderMatches(p);
           if (Array.isArray(providerMatches) && providerMatches.length > 0) anyProviderSucceeded = true;
           await processProviderMatches(providerMatches);
         } catch (err) {
@@ -550,7 +586,7 @@ class MatchAggregator {
       }
     } else {
       // Fast parallel fetching (Render / Local)
-      const results = await Promise.allSettled(providersToQuery.map(p => p.getMatches()));
+      const results = await Promise.allSettled(providersToQuery.map(p => this._fetchProviderMatches(p)));
       for (let index = 0; index < results.length; index++) {
         const promiseResult = results[index];
         if (promiseResult.status === 'fulfilled') {
@@ -720,6 +756,7 @@ class MatchAggregator {
         } else {
           console.warn(`[MatchAggregator] ${provider} returned nothing this sync and no valid entries were available to carry forward.`);
         }
+        if (this.providerHealthService) this.providerHealthService.recordCarryForward(provider, carried.length);
       }
     } catch (carryErr) {
       console.error('[MatchAggregator] Provider carry-forward failed:', carryErr.message);
@@ -746,6 +783,9 @@ class MatchAggregator {
       }
 
       this.cacheService.setMatches(activeMatches);
+      if (this.providerHealthService) {
+        this.providerHealthService.finishSync({ matchCount: activeMatches.length, succeeded: true });
+      }
 
       if (this.teamLogoService) {
         // Asynchronously enrich live & upcoming matches with team badges without delaying sync
@@ -780,6 +820,9 @@ class MatchAggregator {
       }
 
       return activeMatches;
+    }
+    if (this.providerHealthService) {
+      this.providerHealthService.finishSync({ matchCount: 0, succeeded: false });
     }
     return null;
   }

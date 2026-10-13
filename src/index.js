@@ -213,6 +213,25 @@ app.get('/api/options', (req, res) => {
   });
 });
 
+app.get('/api/provider-health', (req, res) => {
+  if (!isLocalDirectRequest(req)) {
+    return res.status(403).json({ error: 'Forbidden', reason: 'loopback_only' });
+  }
+
+  const providerHealth = container.resolve('providerHealthService').snapshot();
+  let circuitBreakers = {};
+  try {
+    circuitBreakers = container.resolve('circuitBreaker').getStatus() || {};
+  } catch (_) {}
+
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    generatedAt: new Date().toISOString(),
+    ...providerHealth,
+    circuitBreakers,
+  });
+});
+
 app.get('/api/matches', (req, res) => {
   // Internal/debug surface: the configure page does not use it, but local helper
   // scripts do. Restrict to a direct local caller instead of removing it.
